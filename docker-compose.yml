@@ -1,4 +1,4 @@
-version: '3'
+version: '3.8'
 services:
   backup:
     build:
@@ -7,38 +7,65 @@ services:
       - ./persist/mysql:/var/lib/mysql
       - /mnt/NAS/HRVAbackups/wiki/:/backup/NAS/wiki
       - ./persist/images:/var/www/html/images
-  nginx-proxy:
-    image: jwilder/nginx-proxy
+  # traefik serves as a reverse proxy for our docker containers
+  traefik:
+    image: "traefik:v2.4"
+    container_name: "traefik"
+    command:
+      - "--log.level=DEBUG"
+      - "--api.insecure=true"
+      - "--providers.docker=true"
+      - "--providers.docker.exposedbydefault=false"
+      - "--entrypoints.web.address=:80"
+      - "--entrypoints.mysql.address=:3306"
     ports:
       - "80:80"
-      - "443:443"
-    environment:
-      DOMAIN_NAME: ${DOMAIN_NAME}
-      DEFAULT_HOST: mediawiki${DOMAIN_NAME}
+      # - "3306:3306"
+      - "8080:8080"
     volumes:
-      - /var/run/docker.sock:/tmp/docker.sock
-      - ./proxy/my_proxy.conf:/etc/nginx/conf.d/my_proxy.conf:ro
+      - "/var/run/docker.sock:/var/run/docker.sock:ro"
+    
+  whoami:
+    image: "traefik/whoami"
+    container_name: "simple-service"
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.whoami.rule=Host(`whoami.localhost`)"
+      - "traefik.http.routers.whoami.entrypoints=web"
+
   mediawiki:
     image: mediawiki
     restart: always
     ports:
-      - 8080:80
+      - 8000:80
     links:
-      - database
+      - wikidb
     environment:
       VIRTUAL_HOST: wiki${DOMAIN_NAME}
     volumes:
       - /var/www/html/images
-      # - ./wiki/LocalSettings.php:/var/www/html/LocalSettings.php
-  database:
+      - ./wiki/LocalSettings.php:/var/www/html/LocalSettings.php
+
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.wiki.rule=Host(`wiki${DOMAIN_NAME}:8080`)"
+      - "traefik.http.routers.wiki.entrypoints=web"
+  wikidb:
     image: mariadb
     restart: always
+    ports:
+      - 3306:3306
     environment:
       # @see https://phabricator.wikimedia.org/source/mediawiki/browse/master/includes/DefaultSettings.php
       MYSQL_DATABASE: hackrva_mw756
       MYSQL_USER: hackrva_mw756
       MYSQL_PASSWORD: ${MW_DB_PASSWORD}
       MYSQL_RANDOM_ROOT_PASSWORD: 'yes'
+    labels:
+      - "traefik.enable=true"
+      - "traefik.tcp.routers.db.rule=HostSNI(`*`)"
+      - "traefik.tcp.services.db.loadbalancer.server.port=3306"
+      - "traefik.tcp.routers.db.entrypoints=mysql"
   games:
     build: ./games
     environment:
@@ -46,3 +73,7 @@ services:
     volumes:
       - ./games/img:/usr/local/apache2/htdocs/img
       - ./games/css:/usr/local/apache2/htdocs/css
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.games.rule=Host(`games${DOMAIN_NAME}`)"
+      - "traefik.http.routers.games.entrypoints=web"
