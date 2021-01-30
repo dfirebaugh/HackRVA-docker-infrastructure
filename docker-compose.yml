@@ -1,9 +1,4 @@
-version: '2'
-networks:
-  hackrva:
-    driver: bridge
-volumes:
-  certstore:
+version: '3'
 services:
   backup:
     build:
@@ -11,53 +6,43 @@ services:
     volumes:
       - ./persist/mysql:/var/lib/mysql
       - /mnt/NAS/HRVAbackups/wiki/:/backup/NAS/wiki
-  gateway:
-    build: ./gateway
+      - ./persist/images:/var/www/html/images
+  nginx-proxy:
+    image: jwilder/nginx-proxy
     ports:
-      - 80:80
-      - 443:443
-    networks:
-      hackrva:
-        aliases:
-          - gateway
-    volumes:
-      - ./gateway/sites:/usr/local/apache2/conf/sites
-      - certstore:/etc/letsencrypt
-  database:
-    build:
-      context: ./database
+      - "80:80"
+      - "443:443"
     environment:
-      MYSQL_RANDOM_ROOT_PASSWORD: "yes"
-    networks:
-      hackrva:
-        aliases:
-          - database
+      DOMAIN_NAME: ${DOMAIN_NAME}
+      DEFAULT_HOST: mediawiki${DOMAIN_NAME}
     volumes:
-      - ./persist/mysql:/var/lib/mysql
-      - ./database/conf.d:/etc/mysql/conf.d
-      - ./database/init:/docker-entrypoint-initdb.d
+      - /var/run/docker.sock:/tmp/docker.sock
+      - ./proxy/my_proxy.conf:/etc/nginx/conf.d/my_proxy.conf:ro
+  mediawiki:
+    image: mediawiki
+    restart: always
+    ports:
+      - 8080:80
+    links:
+      - database
+    environment:
+      VIRTUAL_HOST: wiki${DOMAIN_NAME}
+    volumes:
+      - /var/www/html/images
+      # - ./wiki/LocalSettings.php:/var/www/html/LocalSettings.php
+  database:
+    image: mariadb
+    restart: always
+    environment:
+      # @see https://phabricator.wikimedia.org/source/mediawiki/browse/master/includes/DefaultSettings.php
+      MYSQL_DATABASE: hackrva_mw756
+      MYSQL_USER: hackrva_mw756
+      MYSQL_PASSWORD: ${MW_DB_PASSWORD}
+      MYSQL_RANDOM_ROOT_PASSWORD: 'yes'
   games:
     build: ./games
-    networks:
-      hackrva:
-        aliases:
-          - games
+    environment:
+      VIRTUAL_HOST: games${DOMAIN_NAME}
     volumes:
       - ./games/img:/usr/local/apache2/htdocs/img
       - ./games/css:/usr/local/apache2/htdocs/css
-  wiki:
-    build: ./wiki
-    depends_on:
-      - database
-    networks:
-      hackrva:
-        aliases:
-          - wiki
-    volumes:
-      - ./persist/images:/var/www/html/images
-#   chat:
-#     build: ./chat
-#     networks:
-#       hackrva:
-#         aliases:
-#           - chat

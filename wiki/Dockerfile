@@ -8,6 +8,8 @@ COPY ./LocalSettings.php /var/www/html/LocalSettings.php
 RUN touch /usr/local/etc/php/conf.d/uploads.ini \
     && echo "upload_max_filesize = 40M;" >> /usr/local/etc/php/conf.d/uploads.ini
 
+RUN echo "ServerName ${VIRTUAL_HOST}:80" | tee /etc/apache2/conf-available/fqdn.conf && a2enconf fqdn
+
 # Load the wiki images from a volume
 VOLUME /var/www/html/images
 
